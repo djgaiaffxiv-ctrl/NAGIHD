@@ -1,0 +1,13 @@
+# Dependencias y artefactos (no se versionan)
+node_modules/
+dist/
+
+# Motores de IA: se descargan con  npm run fetch-bin  (≈500 MB)
+bin/
+
+# Temporales / generados
+assets/_preview.png
+assets/_cmp.json
+*.log
+.DS_Store
+Thumbs.db

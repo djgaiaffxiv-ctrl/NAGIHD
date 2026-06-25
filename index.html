@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob: file:; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+  <title>NAGIHD</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="stardust" aria-hidden="true"></div>
+
+  <!-- Barra de título -->
+  <header class="titlebar">
+    <div class="brand">
+      <img class="logo" src="assets/nagi-mark.png" alt="NAGI" />
+      <span class="title">NAGI<b>HD</b></span>
+      <span class="tag">mejora de vídeo con IA</span>
+    </div>
+    <div class="winctl">
+      <button id="min" title="Minimizar">&#x2013;</button>
+      <button id="max" title="Maximizar">&#x25A1;</button>
+      <button id="close" class="close" title="Cerrar">&#x2715;</button>
+    </div>
+  </header>
+
+  <!-- Aviso motores -->
+  <div id="engineBanner" class="banner hidden">
+    <span id="engineMsg">Faltan los motores de IA.</span>
+    <button id="installBtn" class="ghost">Abrir carpeta bin</button>
+  </div>
+
+  <main class="app">
+    <!-- Definición del escenario (se reutiliza en el comparador) -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+      <symbol id="scene" viewBox="0 0 480 320">
+        <defs>
+          <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#241046"/>
+            <stop offset="0.5" stop-color="#5a2a6e"/>
+            <stop offset="1" stop-color="#e07a6a"/>
+          </linearGradient>
+          <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#1b6b86"/>
+            <stop offset="1" stop-color="#0a2740"/>
+          </linearGradient>
+          <radialGradient id="sun" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0" stop-color="#ffe9b0"/>
+            <stop offset="0.6" stop-color="#ffb066"/>
+            <stop offset="1" stop-color="#ff8a5c" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <rect width="480" height="200" fill="url(#sky)"/>
+        <circle cx="120" cy="26" r="1.4" fill="#fff"/>
+        <circle cx="220" cy="44" r="1" fill="#fff"/>
+        <circle cx="320" cy="22" r="1.2" fill="#fff"/>
+        <circle cx="400" cy="56" r="1" fill="#fff"/>
+        <circle cx="60" cy="60" r="1" fill="#fff"/>
+        <circle cx="300" cy="120" r="62" fill="url(#sun)"/>
+        <circle cx="300" cy="120" r="30" fill="#ffd98a"/>
+        <path d="M0 150 L90 96 L150 132 L210 88 L300 140 L380 100 L480 150 Z" fill="#3a1f52" opacity="0.85"/>
+        <path d="M0 168 L70 130 L140 162 L240 120 L330 158 L420 128 L480 160 L480 200 L0 200 Z" fill="#2a1540"/>
+        <rect y="200" width="480" height="120" fill="url(#sea)"/>
+        <rect x="284" y="200" width="32" height="120" fill="#ffd98a" opacity="0.18"/>
+        <path d="M0 214 C60 198 120 230 200 214 C280 198 360 232 480 212 L480 222 C360 240 280 208 200 224 C120 240 60 208 0 224 Z" fill="#2fe6d6" opacity="0.55"/>
+        <path d="M0 250 C80 236 160 264 260 248 C360 232 420 262 480 250 L480 262 C420 274 360 244 260 260 C160 276 80 248 0 262 Z" fill="#38e0ff" opacity="0.35"/>
+        <path d="M150 232 q22 -30 44 -2 q14 18 -6 26 q-26 8 -38 -24 Z" fill="#2fe6d6" opacity="0.7"/>
+      </symbol>
+    </svg>
+
+    <!-- Portada -->
+    <section id="dropZone" class="hero">
+      <div class="aurora a1"></div>
+      <div class="aurora a2"></div>
+      <div class="aurora a3"></div>
+
+      <div class="hero-inner">
+        <div class="hero-left">
+          <div class="hero-badge"><img src="assets/nagi-mark.png" alt="NAGI" /> NAGI STUDIOS</div>
+          <h1 class="hero-title">NAGI<b>HD</b></h1>
+          <p class="hero-sub">Revive tus vídeos antiguos. Escala con <b>IA</b> de 480p hasta <b>4K</b> y gana fluidez — todo en tu propia GPU, sin nube.</p>
+          <div class="chips">
+            <span class="chip">✦ IA Real-ESRGAN</span>
+            <span class="chip">⚡ Fluidez RIFE</span>
+            <span class="chip">◈ Hasta 4K</span>
+            <span class="chip">⬇ 100% offline</span>
+          </div>
+          <div class="hero-cta">
+            <button id="pickBtn" class="primary big shine">＋ Elegir vídeo</button>
+            <span class="or-drag">o arrastra y suelta aquí</span>
+          </div>
+          <div class="formats">MP4 · MOV · MKV · AVI · WEBM · WMV · y más</div>
+        </div>
+
+        <div class="hero-right">
+          <div class="ba-card" id="baCard">
+            <svg class="ba-svg" viewBox="0 0 480 320" preserveAspectRatio="xMidYMid slice"><use href="#scene"/></svg>
+            <div class="ba-before" id="baBefore">
+              <svg class="ba-svg" viewBox="0 0 480 320" preserveAspectRatio="xMidYMid slice"><use href="#scene"/></svg>
+            </div>
+            <span class="ba-tag tag-lo">480p</span>
+            <span class="ba-tag tag-hi">4K · IA</span>
+            <div class="ba-divider" id="baDivider"><div class="ba-handle">⟺</div></div>
+          </div>
+          <small class="ba-cap">◄ Arrastra para comparar la calidad ►</small>
+        </div>
+      </div>
+    </section>
+
+    <!-- Panel de trabajo -->
+    <section id="workPanel" class="work hidden">
+      <div class="filecard">
+        <div class="thumb" id="thumb">🎬</div>
+        <div class="meta">
+          <div class="fname" id="fname">—</div>
+          <div class="specs" id="specs">—</div>
+          <button id="changeBtn" class="link">Cambiar vídeo</button>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div class="ctl">
+          <label>Tipo de contenido</label>
+          <div class="seg" id="modeSeg">
+            <button data-mode="anime" class="active">Anime / Dibujos</button>
+            <button data-mode="real">Vídeo real</button>
+            <button data-mode="gameplay">Gameplay</button>
+          </div>
+          <small class="hint" id="modeHint">Modelo anime: bordes nítidos y limpios.</small>
+        </div>
+
+        <div class="ctl">
+          <label>Resolución de salida</label>
+          <div class="seg" id="resSeg">
+            <button data-h="720">720p</button>
+            <button data-h="1080" class="active">1080p</button>
+            <button data-h="1440">1440p</button>
+            <button data-h="2160">4K</button>
+          </div>
+          <small class="hint" id="resHint">—</small>
+        </div>
+
+        <div class="ctl row">
+          <div class="switch-wrap">
+            <label class="switch">
+              <input type="checkbox" id="interpChk" />
+              <span class="slider"></span>
+            </label>
+            <div>
+              <label class="inline">Más fluidez (RIFE)</label>
+              <small class="hint">Duplica los FPS interpolando fotogramas.</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="ctl row">
+          <div class="switch-wrap">
+            <label class="switch">
+              <input type="checkbox" id="denoiseChk" />
+              <span class="slider"></span>
+            </label>
+            <div>
+              <label class="inline">Reducir ruido</label>
+              <small class="hint">Limpia grano y artefactos de compresión (vídeos viejos).</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="ctl">
+          <label>Procesador</label>
+          <div class="seg" id="encSeg">
+            <button data-enc="nvenc" class="active">GPU (NVENC) · rápido</button>
+            <button data-enc="x264">CPU · máxima calidad</button>
+          </div>
+        </div>
+
+        <div class="ctl">
+          <label>Códec</label>
+          <div class="seg" id="codecSeg">
+            <button data-codec="h264" class="active">H.264 · compatible</button>
+            <button data-codec="h265">H.265 · archivos pequeños</button>
+          </div>
+          <small class="hint" id="codecHint">H.264: reproducible en cualquier sitio.</small>
+        </div>
+
+        <div class="ctl">
+          <label>Calidad <span id="qVal" class="qval">17</span> <small class="hint">(menor = mejor)</small></label>
+          <input type="range" id="quality" min="12" max="28" value="17" />
+        </div>
+
+        <div class="ctl">
+          <label>Nitidez extra <span id="sVal" class="qval">Media</span> <small class="hint">(resalta el detalle de la IA)</small></label>
+          <input type="range" id="sharpen" min="0" max="200" step="10" value="90" />
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="previewBtn" class="ghost big">👁 Vista previa (10s)</button>
+        <button id="startBtn" class="primary big">✨ Mejorar vídeo</button>
+      </div>
+    </section>
+
+    <!-- Progreso -->
+    <section id="progressPanel" class="progress hidden">
+      <h3 id="progTitle">Procesando…</h3>
+      <div class="bar"><div class="bar-fill" id="barFill"></div></div>
+      <div class="prow"><span id="progLabel">—</span><span id="progPct">0%</span></div>
+
+      <div class="stats" id="stats">
+        <div class="stat"><div class="stat-val" id="stEta">—</div><div class="stat-lbl">restante</div></div>
+        <div class="stat"><div class="stat-val" id="stFrames">—</div><div class="stat-lbl">fotogramas</div></div>
+        <div class="stat"><div class="stat-val" id="stFps">—</div><div class="stat-lbl">velocidad</div></div>
+        <div class="stat"><div class="stat-val" id="stElapsed">0:00</div><div class="stat-lbl">transcurrido</div></div>
+      </div>
+
+      <div class="phases" id="phases">
+        <span data-p="extract">Extraer</span>
+        <span data-p="upscale">IA escalado</span>
+        <span data-p="interp">Fluidez</span>
+        <span data-p="encode">Render</span>
+      </div>
+      <button id="cancelBtn" class="ghost">Cancelar</button>
+    </section>
+
+    <!-- Resultado -->
+    <section id="resultPanel" class="result hidden">
+      <div class="result-icon" id="resultIcon">✅</div>
+      <h3 id="resultTitle">¡Listo!</h3>
+      <p id="resultMsg">—</p>
+
+      <div class="cmp-wrap hidden" id="cmpWrap">
+        <div class="cmp-card" id="cmpCard">
+          <img class="cmp-img cmp-after" id="cmpAfter" alt="" />
+          <div class="cmp-before" id="cmpBeforeWrap"><img class="cmp-img" id="cmpBefore" alt="" /></div>
+          <span class="ba-tag tag-lo">Original</span>
+          <span class="ba-tag tag-hi">NAGIHD</span>
+          <div class="ba-divider cmp-divider"><div class="ba-handle">⟺</div></div>
+        </div>
+        <small class="ba-cap">◄ Arrastra para comparar · mismo fotograma ►</small>
+      </div>
+
+      <div class="result-actions">
+        <button id="playBtn" class="watch-btn"><span class="wb-ico">▶</span> VER VÍDEO</button>
+      </div>
+      <div class="result-actions secondary">
+        <button id="revealBtn" class="ghost">Abrir carpeta</button>
+        <button id="againBtn" class="ghost">Mejorar otro</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="credit" data-nagi-credit>
+    <img class="cmark" src="assets/nagi-mark.png" alt="NAGI" /> © 2026 NAGI STUDIOS
+  </footer>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

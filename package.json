@@ -1,0 +1,64 @@
+{
+  "name": "nagihd",
+  "version": "1.0.0",
+  "description": "NAGIHD — Mejora de vídeo con IA (Real-ESRGAN + RIFE) por NAGI STUDIOS",
+  "main": "main.js",
+  "author": "NAGI STUDIOS",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "fetch-bin": "powershell -ExecutionPolicy Bypass -File scripts/fetch-bin.ps1",
+    "dist": "electron-builder --win nsis --publish never",
+    "release": "electron-builder --win nsis --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9",
+    "ffmpeg-static": "^5.2.0",
+    "ffprobe-static": "^3.1.0"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "studios.nagi.nagihd",
+    "productName": "NAGIHD",
+    "artifactName": "NAGIHD-Setup-${version}.${ext}",
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "renderer.js",
+      "styles.css",
+      "assets/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "bin",
+        "to": "bin",
+        "filter": ["**/*"]
+      }
+    ],
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**",
+      "node_modules/ffprobe-static/**"
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": ["nsis"]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "NAGIHD"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "djgaiaffxiv-ctrl",
+      "repo": "NAGIHD"
+    }
+  }
+}
