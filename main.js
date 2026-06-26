@@ -266,7 +266,10 @@ function runProc(exe, args, opts, onLine) {
     if (currentJob) currentJob.procs.push(p);
     let errBuf = '';
     let stalled = false;
+    let abortReason = null;
     let watchdog = null;
+    // El callback onLine puede pedir abortar el proceso con un motivo concreto.
+    const ctl = { abort: (reason) => { abortReason = reason || 'ABORT'; try { p.kill('SIGKILL'); } catch (_) {} } };
     const pet = () => {
       if (!stallMs) return;
       if (watchdog) clearTimeout(watchdog);
@@ -278,7 +281,7 @@ function runProc(exe, args, opts, onLine) {
     const handle = (chunk) => {
       const s = chunk.toString();
       errBuf += s;
-      if (onLine) s.split(/[\r\n]+/).forEach(l => { if (l.trim()) onLine(l.trim()); });
+      if (onLine) s.split(/[\r\n]+/).forEach(l => { if (l.trim()) onLine(l.trim(), ctl); });
       if (errBuf.length > 64000) errBuf = errBuf.slice(-32000);
       pet();
     };
@@ -289,6 +292,7 @@ function runProc(exe, args, opts, onLine) {
     p.on('close', (code) => {
       if (watchdog) clearTimeout(watchdog);
       if (currentJob) currentJob.procs = currentJob.procs.filter(x => x !== p);
+      if (abortReason) return reject(new Error(abortReason));
       if (stalled) return reject(new Error('STALL'));
       if (currentJob && currentJob.cancelled) return reject(new Error('Cancelado'));
       if (code === 0) resolve();
@@ -409,8 +413,9 @@ ipcMain.handle('job:start', async (e, cfg) => {
       throw new Error('Falta el motor Real-ESRGAN. Pulsa "Instalar motores" o ejecuta npm run fetch-bin.');
     }
     const { model, scale } = pickUpscale(cfg.mode, info.height, cfg.targetH);
-    // Tile size acotado para no agotar la VRAM en saltos grandes (4K) → evita cuelgues.
-    const tile = cfg.targetH >= 2160 ? 200 : (cfg.targetH >= 1440 ? 256 : 0);
+    // Tile size SIEMPRE acotado (nunca auto/0): en GPUs débiles el tile automático puede
+    // agotar la VRAM, perder el dispositivo Vulkan y reprocesar en bucle infinito.
+    const tile = cfg.targetH >= 2160 ? 192 : (cfg.targetH >= 1440 ? 224 : 256);
     const upLabel = `Mejorando con IA (${model} ×${scale})…`;
     report('upscale', upLabel, 0);
     const upArgs = [
@@ -419,12 +424,22 @@ ipcMain.handle('job:start', async (e, cfg) => {
       '-n', model,
       '-s', String(scale),
       '-t', String(tile),
+      '-g', '0',
       '-f', 'png',
       '-m', realesrganModels()
     ];
-    await runProc(realesrganExe(), upArgs, { stallMs: 150000 }, (line) => {
+    // Detector de bucle: si el % retrocede mucho, el motor se ha reiniciado (GPU inestable).
+    let upMax = 0, upRestarts = 0;
+    await runProc(realesrganExe(), upArgs, { stallMs: 180000 }, (line, ctl) => {
       const p = pctOf(line);
-      if (p !== null) report('upscale', upLabel, p, Math.round(p * totalFrames), totalFrames);
+      if (p === null) return;
+      if (p + 0.2 < upMax) { // el progreso cayó >20 puntos → reinicio del motor
+        upRestarts++;
+        if (upRestarts >= 2) return ctl.abort('LOOP');
+        upMax = p; // reinicio aceptado una vez; volvemos a medir desde aquí
+      }
+      upMax = Math.max(upMax, p);
+      report('upscale', upLabel, p, Math.round(p * totalFrames), totalFrames);
     });
     if (currentJob.cancelled) throw new Error('Cancelado');
     report('upscale', 'Mejora con IA completada', 1, totalFrames, totalFrames);
@@ -446,9 +461,13 @@ ipcMain.handle('job:start', async (e, cfg) => {
         '-m', rifeModelDir()
       ];
       const interpTotal = totalFrames * 2;
-      await runProc(rifeExe(), rifeArgs, { stallMs: 150000 }, (line) => {
+      let ipMax = 0, ipRestarts = 0;
+      await runProc(rifeExe(), rifeArgs, { stallMs: 180000 }, (line, ctl) => {
         const p = pctOf(line);
-        if (p !== null) report('interp', 'Generando fotogramas intermedios (RIFE)…', p, Math.round(p * interpTotal), interpTotal);
+        if (p === null) return;
+        if (p + 0.2 < ipMax) { ipRestarts++; if (ipRestarts >= 2) return ctl.abort('LOOP'); ipMax = p; }
+        ipMax = Math.max(ipMax, p);
+        report('interp', 'Generando fotogramas intermedios (RIFE)…', p, Math.round(p * interpTotal), interpTotal);
       });
       if (currentJob.cancelled) throw new Error('Cancelado');
       assembleDir = framesInterp;
@@ -509,6 +528,10 @@ ipcMain.handle('job:start', async (e, cfg) => {
     if (msg === 'STALL') {
       msg = 'Un motor se quedó bloqueado (posible falta de memoria de GPU). ' +
         'Prueba una resolución de salida menor (p. ej. 1080p) o cierra otras apps que usen la GPU.';
+    } else if (msg === 'LOOP') {
+      msg = 'El motor de IA se reinicia en bucle: tu GPU se queda sin memoria o es inestable para estos ajustes. ' +
+        'Soluciones: baja la resolución (720p/1080p), usa el modo "Anime / Dibujos" (mucho más ligero que "Vídeo real"), ' +
+        'desactiva la fluidez, o cierra otras apps que usen la GPU.';
     }
     return { ok: false, cancelled: !!cancelled, error: cancelled ? 'Trabajo cancelado.' : msg };
   }
