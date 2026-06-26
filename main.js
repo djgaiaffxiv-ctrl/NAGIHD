@@ -416,31 +416,36 @@ ipcMain.handle('job:start', async (e, cfg) => {
     // Tile size SIEMPRE acotado (nunca auto/0): en GPUs débiles el tile automático puede
     // agotar la VRAM, perder el dispositivo Vulkan y reprocesar en bucle infinito.
     const tile = cfg.targetH >= 2160 ? 192 : (cfg.targetH >= 1440 ? 224 : 256);
+
+    // Un intento de escalado con tile/hilos dados. Detecta reinicios (bucle) y aborta con 'LOOP'.
+    const runUpscale = (tileSize, jobs, label) => {
+      const args = ['-i', framesIn, '-o', framesUp, '-n', model, '-s', String(scale),
+        '-t', String(tileSize), '-g', '0', '-f', 'png', '-m', realesrganModels()];
+      if (jobs) args.push('-j', jobs);
+      let upMax = 0, upRestarts = 0;
+      return runProc(realesrganExe(), args, { stallMs: 180000 }, (line, ctl) => {
+        const p = pctOf(line);
+        if (p === null) return;
+        if (p + 0.2 < upMax) { upRestarts++; if (upRestarts >= 2) return ctl.abort('LOOP'); upMax = p; }
+        upMax = Math.max(upMax, p);
+        report('upscale', label, p, Math.round(p * totalFrames), totalFrames);
+      });
+    };
+
     const upLabel = `Mejorando con IA (${model} ×${scale})…`;
     report('upscale', upLabel, 0);
-    const upArgs = [
-      '-i', framesIn,
-      '-o', framesUp,
-      '-n', model,
-      '-s', String(scale),
-      '-t', String(tile),
-      '-g', '0',
-      '-f', 'png',
-      '-m', realesrganModels()
-    ];
-    // Detector de bucle: si el % retrocede mucho, el motor se ha reiniciado (GPU inestable).
-    let upMax = 0, upRestarts = 0;
-    await runProc(realesrganExe(), upArgs, { stallMs: 180000 }, (line, ctl) => {
-      const p = pctOf(line);
-      if (p === null) return;
-      if (p + 0.2 < upMax) { // el progreso cayó >20 puntos → reinicio del motor
-        upRestarts++;
-        if (upRestarts >= 2) return ctl.abort('LOOP');
-        upMax = p; // reinicio aceptado una vez; volvemos a medir desde aquí
-      }
-      upMax = Math.max(upMax, p);
-      report('upscale', upLabel, p, Math.round(p * totalFrames), totalFrames);
-    });
+    try {
+      await runUpscale(tile, null, upLabel);
+    } catch (e) {
+      if (currentJob.cancelled || String(e.message) !== 'LOOP') throw e;
+      // GPU justa: reintento automático en MODO SEGURO (mismo modelo/calidad), con tile
+      // mínimo + 1 hilo → poquísima VRAM. Más lento pero completa sin bucle.
+      try { fs.rmSync(framesUp, { recursive: true, force: true }); } catch (_) {}
+      fs.mkdirSync(framesUp, { recursive: true });
+      const safeLabel = `Modo seguro (GPU justa): ${model} ×${scale}…`;
+      report('upscale', safeLabel, 0);
+      await runUpscale(64, '1:1:1', safeLabel); // si vuelve a hacer bucle, propaga 'LOOP' → error
+    }
     if (currentJob.cancelled) throw new Error('Cancelado');
     report('upscale', 'Mejora con IA completada', 1, totalFrames, totalFrames);
 
@@ -529,9 +534,9 @@ ipcMain.handle('job:start', async (e, cfg) => {
       msg = 'Un motor se quedó bloqueado (posible falta de memoria de GPU). ' +
         'Prueba una resolución de salida menor (p. ej. 1080p) o cierra otras apps que usen la GPU.';
     } else if (msg === 'LOOP') {
-      msg = 'El motor de IA se reinicia en bucle: tu GPU se queda sin memoria o es inestable para estos ajustes. ' +
-        'Soluciones: baja la resolución (720p/1080p), usa el modo "Anime / Dibujos" (mucho más ligero que "Vídeo real"), ' +
-        'desactiva la fluidez, o cierra otras apps que usen la GPU.';
+      msg = 'Tu GPU no puede con este vídeo ni en modo seguro (se queda sin memoria o es inestable). ' +
+        'Prueba: una resolución de salida menor (720p), desactiva la fluidez, cierra otras apps que usen la GPU, ' +
+        'o procesa un fragmento más corto. Si sigue fallando, la tarjeta gráfica es demasiado limitada para este vídeo.';
     }
     return { ok: false, cancelled: !!cancelled, error: cancelled ? 'Trabajo cancelado.' : msg };
   }

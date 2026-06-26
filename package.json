@@ -1,6 +1,6 @@
 {
   "name": "nagihd",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "NAGIHD — Mejora de vídeo con IA (Real-ESRGAN + RIFE) por NAGI STUDIOS",
   "main": "main.js",
   "author": "NAGI STUDIOS",
