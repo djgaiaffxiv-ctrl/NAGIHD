@@ -259,6 +259,7 @@ function showProgress(preview) {
   $('#resultPanel').classList.add('hidden');
   $('#progressPanel').classList.remove('hidden');
   $('#progTitle').textContent = preview ? 'Generando vista previa (10s)…' : 'Procesando…';
+  $('#gpuLine').textContent = '';
   $('#barFill').style.width = '0%';
   $('#progPct').textContent = '0%';
   $('#progLabel').textContent = 'Iniciando…';
@@ -268,6 +269,7 @@ function showProgress(preview) {
 
   if (progressUnsub) progressUnsub();
   progressUnsub = window.nagi.onProgress((d) => {
+    if (d.gpu) { $('#gpuLine').textContent = '⚙ Usando: ' + d.gpu; return; }
     $('#barFill').style.width = d.overall + '%';
     $('#progPct').textContent = d.overall + '%';
     $('#progLabel').textContent = d.label;

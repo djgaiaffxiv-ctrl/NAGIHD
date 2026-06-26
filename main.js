@@ -320,6 +320,44 @@ function pickUpscale(mode, inH, targetH) {
   return { model: 'realesr-animevideov3', scale };
 }
 
+/* ---------- Detección de GPU ----------
+ * En portátiles con Intel iGPU + NVIDIA/AMD dedicada, forzar la GPU 0 puede coger la
+ * integrada (lentísima, poca memoria → bucle). Detectamos la dedicada y la usamos. */
+let cachedGpu = null; // { id, name }
+async function detectGpu() {
+  if (cachedGpu !== null) return cachedGpu;
+  cachedGpu = { id: 0, name: 'GPU 0' };
+  try {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nagihd_gpu_'));
+    const pin = path.join(tmp, 'p.png'), pout = path.join(tmp, 'po.png');
+    await new Promise((res) => execFile(ffmpegPath,
+      ['-y', '-f', 'lavfi', '-i', 'color=c=black:s=16x16', '-frames:v', '1', pin],
+      { timeout: 15000 }, () => res()));
+    const buf = await new Promise((res) => {
+      let b = '';
+      const pr = spawn(realesrganExe(),
+        ['-i', pin, '-o', pout, '-n', 'realesrgan-x4plus', '-s', '4', '-t', '32', '-m', realesrganModels()]);
+      if (pr.stderr) pr.stderr.on('data', d => { b += d.toString(); });
+      pr.on('close', () => res(b));
+      pr.on('error', () => res(b));
+    });
+    const seen = {};
+    buf.split(/[\r\n]+/).forEach(l => {
+      const m = l.match(/\[(\d+)\s+([^\]]+?)\]\s+(?:queue|bugs|fp16|subgroup)/);
+      if (m && seen[m[1]] === undefined) seen[m[1]] = m[2].trim();
+    });
+    const gpus = Object.keys(seen).map(k => ({ id: parseInt(k, 10), name: seen[k] }));
+    if (gpus.length) {
+      const nv = gpus.find(g => /nvidia|geforce|rtx|gtx|quadro/i.test(g.name));
+      const amd = gpus.find(g => /radeon|\bamd\b/i.test(g.name));
+      const nonIntel = gpus.find(g => !/intel/i.test(g.name));
+      cachedGpu = nv || amd || nonIntel || gpus[0];
+    }
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (_) {}
+  } catch (_) {}
+  return cachedGpu;
+}
+
 /* ---------- Pipeline principal ---------- */
 ipcMain.handle('job:start', async (e, cfg) => {
   // cfg: { input, output, mode, targetH, interpolate, targetFps, useNvenc, quality }
@@ -413,6 +451,10 @@ ipcMain.handle('job:start', async (e, cfg) => {
       throw new Error('Falta el motor Real-ESRGAN. Pulsa "Instalar motores" o ejecuta npm run fetch-bin.');
     }
     const { model, scale } = pickUpscale(cfg.mode, info.height, cfg.targetH);
+    // Detectar la GPU dedicada (evita usar la Intel integrada en portátiles).
+    const gpu = await detectGpu();
+    if (currentJob.cancelled) throw new Error('Cancelado');
+    emit('job:progress', { gpu: gpu.name });
     // Tile size SIEMPRE acotado (nunca auto/0): en GPUs débiles el tile automático puede
     // agotar la VRAM, perder el dispositivo Vulkan y reprocesar en bucle infinito.
     const tile = cfg.targetH >= 2160 ? 192 : (cfg.targetH >= 1440 ? 224 : 256);
@@ -420,7 +462,7 @@ ipcMain.handle('job:start', async (e, cfg) => {
     // Un intento de escalado con tile/hilos dados. Detecta reinicios (bucle) y aborta con 'LOOP'.
     const runUpscale = (tileSize, jobs, label) => {
       const args = ['-i', framesIn, '-o', framesUp, '-n', model, '-s', String(scale),
-        '-t', String(tileSize), '-g', '0', '-f', 'png', '-m', realesrganModels()];
+        '-t', String(tileSize), '-g', String(gpu.id), '-f', 'png', '-m', realesrganModels()];
       if (jobs) args.push('-j', jobs);
       let upMax = 0, upRestarts = 0;
       return runProc(realesrganExe(), args, { stallMs: 180000 }, (line, ctl) => {
@@ -463,6 +505,7 @@ ipcMain.handle('job:start', async (e, cfg) => {
       const rifeArgs = [
         '-i', framesUp,
         '-o', framesInterp,
+        '-g', String(gpu.id),
         '-m', rifeModelDir()
       ];
       const interpTotal = totalFrames * 2;
