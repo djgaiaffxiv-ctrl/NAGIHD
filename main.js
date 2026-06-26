@@ -455,23 +455,24 @@ ipcMain.handle('job:start', async (e, cfg) => {
     const gpu = await detectGpu();
     if (currentJob.cancelled) throw new Error('Cancelado');
     emit('job:progress', { gpu: gpu.name });
-    // Tile size SIEMPRE acotado (nunca auto/0): en GPUs débiles el tile automático puede
-    // agotar la VRAM, perder el dispositivo Vulkan y reprocesar en bucle infinito.
+    // Tile size acotado (nunca auto/0) para no agotar la VRAM en saltos grandes.
     const tile = cfg.targetH >= 2160 ? 192 : (cfg.targetH >= 1440 ? 224 : 256);
 
-    // Un intento de escalado con tile/hilos dados. Detecta reinicios (bucle) y aborta con 'LOOP'.
-    const runUpscale = (tileSize, jobs, label) => {
+    // OJO: Real-ESRGAN imprime el % POR FOTOGRAMA (se reinicia en cada uno), no acumulado.
+    // Por eso el progreso real se mide contando los PNG de salida (siempre monótono).
+    const countPng = (dir) => { try { return fs.readdirSync(dir).filter(f => f.endsWith('.png')).length; } catch (_) { return 0; } };
+
+    const runUpscale = async (tileSize, jobs, label) => {
       const args = ['-i', framesIn, '-o', framesUp, '-n', model, '-s', String(scale),
         '-t', String(tileSize), '-g', String(gpu.id), '-f', 'png', '-m', realesrganModels()];
       if (jobs) args.push('-j', jobs);
-      let upMax = 0, upRestarts = 0;
-      return runProc(realesrganExe(), args, { stallMs: 180000 }, (line, ctl) => {
-        const p = pctOf(line);
-        if (p === null) return;
-        if (p + 0.2 < upMax) { upRestarts++; if (upRestarts >= 2) return ctl.abort('LOOP'); upMax = p; }
-        upMax = Math.max(upMax, p);
-        report('upscale', label, p, Math.round(p * totalFrames), totalFrames);
-      });
+      const ticker = setInterval(() => {
+        const done = countPng(framesUp);
+        report('upscale', label, totalFrames ? done / totalFrames : 0, done, totalFrames);
+      }, 600);
+      try {
+        await runProc(realesrganExe(), args, { stallMs: 180000 }); // stderr solo "alimenta" el watchdog
+      } finally { clearInterval(ticker); }
     };
 
     const upLabel = `Mejorando con IA (${model} ×${scale})…`;
@@ -479,14 +480,18 @@ ipcMain.handle('job:start', async (e, cfg) => {
     try {
       await runUpscale(tile, null, upLabel);
     } catch (e) {
-      if (currentJob.cancelled || String(e.message) !== 'LOOP') throw e;
-      // GPU justa: reintento automático en MODO SEGURO (mismo modelo/calidad), con tile
-      // mínimo + 1 hilo → poquísima VRAM. Más lento pero completa sin bucle.
+      if (currentJob.cancelled) throw new Error('Cancelado');
+      // El motor falló (posible falta de VRAM/crash) → reintento en MODO SEGURO: tile mínimo + 1 hilo.
       try { fs.rmSync(framesUp, { recursive: true, force: true }); } catch (_) {}
       fs.mkdirSync(framesUp, { recursive: true });
       const safeLabel = `Modo seguro (GPU justa): ${model} ×${scale}…`;
       report('upscale', safeLabel, 0);
-      await runUpscale(64, '1:1:1', safeLabel); // si vuelve a hacer bucle, propaga 'LOOP' → error
+      try {
+        await runUpscale(64, '1:1:1', safeLabel);
+      } catch (e2) {
+        if (currentJob.cancelled) throw new Error('Cancelado');
+        throw new Error('GPUFAIL');
+      }
     }
     if (currentJob.cancelled) throw new Error('Cancelado');
     report('upscale', 'Mejora con IA completada', 1, totalFrames, totalFrames);
@@ -509,14 +514,13 @@ ipcMain.handle('job:start', async (e, cfg) => {
         '-m', rifeModelDir()
       ];
       const interpTotal = totalFrames * 2;
-      let ipMax = 0, ipRestarts = 0;
-      await runProc(rifeExe(), rifeArgs, { stallMs: 180000 }, (line, ctl) => {
-        const p = pctOf(line);
-        if (p === null) return;
-        if (p + 0.2 < ipMax) { ipRestarts++; if (ipRestarts >= 2) return ctl.abort('LOOP'); ipMax = p; }
-        ipMax = Math.max(ipMax, p);
-        report('interp', 'Generando fotogramas intermedios (RIFE)…', p, Math.round(p * interpTotal), interpTotal);
-      });
+      const ipTicker = setInterval(() => {
+        const done = countPng(framesInterp);
+        report('interp', 'Generando fotogramas intermedios (RIFE)…', done / interpTotal, done, interpTotal);
+      }, 600);
+      try {
+        await runProc(rifeExe(), rifeArgs, { stallMs: 180000 });
+      } finally { clearInterval(ipTicker); }
       if (currentJob.cancelled) throw new Error('Cancelado');
       assembleDir = framesInterp;
       assemblePattern = '%08d.png';
@@ -576,10 +580,10 @@ ipcMain.handle('job:start', async (e, cfg) => {
     if (msg === 'STALL') {
       msg = 'Un motor se quedó bloqueado (posible falta de memoria de GPU). ' +
         'Prueba una resolución de salida menor (p. ej. 1080p) o cierra otras apps que usen la GPU.';
-    } else if (msg === 'LOOP') {
-      msg = 'Tu GPU no puede con este vídeo ni en modo seguro (se queda sin memoria o es inestable). ' +
-        'Prueba: una resolución de salida menor (720p), desactiva la fluidez, cierra otras apps que usen la GPU, ' +
-        'o procesa un fragmento más corto. Si sigue fallando, la tarjeta gráfica es demasiado limitada para este vídeo.';
+    } else if (msg === 'GPUFAIL') {
+      msg = 'El escalado por IA falló incluso en modo seguro. ' +
+        'Prueba una resolución de salida menor (720p), desactiva la fluidez, cierra otras apps que usen la GPU, ' +
+        'o procesa un fragmento más corto.';
     }
     return { ok: false, cancelled: !!cancelled, error: cancelled ? 'Trabajo cancelado.' : msg };
   }
